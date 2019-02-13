@@ -1,0 +1,137 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    code_folding: "hide"
+    df_print: paged
+  pdf_document: default
+  word_document: default
+---
+
+Fyodor Dostoevsky was russian Author in the 19th century. In this study I'm going to conduct some analysis on three of his most seminal books. 
+
+```{r}
+#Importing Libraries 
+library(tidyverse)
+library(gutenbergr)
+library(tidyr)
+library(ggplot2) 
+library(tidytext)
+library(stringr)
+library(dplyr)
+library(tm)
+library(topicmodels)
+theme_set(theme_bw())
+```
+
+Things were made easier by having access to the gutenbergr library.
+```{r}
+#downloading the books using the ids in the gutenberg library
+books <- gutenberg_download(c(2197, 2554, 28054), meta_fields = "title")
+```
+
+```{r}
+#Tokenizing the books. This is an important step because it splits the text into individual words or sequences of words.
+tidy_books <- books %>%
+  unnest_tokens(word, text)
+tidy_books
+```
+
+Now that we have everything run we can now start picking apart the books.Removing the stop words which is way when conducting natural language processing you elimnate common words like "The","And", and etc.  
+
+```{r}
+#Remove the stop words 
+data("stop_words")
+cleaned_books <- tidy_books %>%
+  anti_join(stop_words)
+```
+
+```{r}
+cleaned_books %>%
+  count(word, sort = TRUE)
+```
+
+This bag of words that we are dealing with after elimanting the stop of wrods and analysis is already starting to take shape. 
+
+```{r}
+bing <- get_sentiments("bing")
+bing_word_counts <- tidy_books %>%
+  inner_join(bing) %>%
+  count(word, sentiment, sort = TRUE) %>%
+  ungroup()
+```
+
+```{r}
+bing_word_counts %>%
+  filter(n > 150) %>%
+  mutate(n = ifelse(sentiment == 'negative', -n, n)) %>%
+  mutate(word = reorder(word, n)) %>%
+  ggplot(aes(word, n, fill = sentiment)) +
+  geom_bar(stat = 'identity') +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  ylab('Contribution to sentiment') + ggtitle('Most common positive and negative words')
+```
+
+While the positve words were more concentraed on certain words("Like","Better","Well"). The negative words were more dispersed and less frequently could this mean that Dyvotkesy wrote more positive novels?
+
+TF-IDF:In text analysis, tf-idf, short for term frequency–inverse document frequency, is a numerical statistic that is intended to reflect how important a word is to a document in a collection or corpus. It is often used as a weighting factor in information retrieval and text mining.
+
+So this technique is going to help us figure out what are the most important words through Dostoevksy's three novels. 
+
+```{r}
+book_words <- cleaned_books %>%
+  count(title, word, sort = TRUE) %>%
+  ungroup()
+
+total_words <- book_words %>% 
+  group_by(title) %>% 
+  summarize(total = sum(n))
+
+book_words <- left_join(book_words, total_words)
+
+book_words
+```
+
+Terms with the highest tf-idf number across the three novels. 
+
+```{r}
+book_words <- book_words %>%
+  bind_tf_idf(word, title, n)
+
+book_words %>%
+  select(-total) %>%
+  arrange(desc(tf_idf))
+```
+
+After taking this in we can plot them. 
+
+```{r}
+plot <- book_words %>%
+  arrange(desc(tf_idf)) %>%
+  mutate(word = factor(word, levels = rev(unique(word))))
+
+plot %>% 
+  top_n(20) %>%
+  ggplot(aes(word, tf_idf, fill = title)) +
+  geom_bar(stat = 'identity', position = position_dodge())+
+  labs(x = NULL, y = "tf-idf") +
+  coord_flip() + ggtitle("Top tf-idf words in Fyodor Dostoyevsky's Three Novels")
+```
+
+The top words are dominated by the charcters. Which makes sense if you are familar with his works. In which he had stories that were very character centric. 
+
+```{r}
+plot %>% 
+  group_by(title) %>% 
+  top_n(10) %>% 
+  ungroup %>%
+  ggplot(aes(word, tf_idf, fill = title)) +
+  geom_col(show.legend = FALSE) +
+  labs(x = NULL, y = "tf-idf") +
+  facet_wrap(~title, ncol = 2, scales = "free") +
+  coord_flip() + ggtitle('Top tf-idf words in each novel')
+```
+
+A cross examination of the three novels shows that "Crime and Punishment" and "The Brothers Karamazov" had much bigger character pools "The Gambler". A further study could cross examine his books to his contempories and see if he had different plots. 
+Natural Language processing as a whole is very intresting because you can sum up documents before you go in and start looking more closely. It allows your brain to anchor on certain words and helps you quickly identify what is important in a particular corpus("Body of Text").
+
